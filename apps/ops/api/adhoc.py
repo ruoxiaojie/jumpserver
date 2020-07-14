@@ -6,10 +6,15 @@ from rest_framework import viewsets, generics
 from rest_framework.views import Response
 
 from common.permissions import IsOrgAdmin
-from orgs.utils import current_org
-from ..models import Task, AdHoc, AdHocRunHistory
-from ..serializers import TaskSerializer, AdHocSerializer, \
-    AdHocRunHistorySerializer
+from common.serializers import CeleryTaskSerializer
+from ..models import Task, AdHoc, AdHocExecution
+from ..serializers import (
+    TaskSerializer,
+    AdHocSerializer,
+    AdHocExecutionSerializer,
+    TaskDetailSerializer,
+    AdHocDetailSerializer,
+)
 from ..tasks import run_ansible_task
 
 __all__ = [
@@ -19,21 +24,25 @@ __all__ = [
 
 class TaskViewSet(viewsets.ModelViewSet):
     queryset = Task.objects.all()
+    filter_fields = ("name",)
+    search_fields = filter_fields
     serializer_class = TaskSerializer
     permission_classes = (IsOrgAdmin,)
 
+    def get_serializer_class(self):
+        if self.action == 'retrieve':
+            return TaskDetailSerializer
+        return super().get_serializer_class()
+
     def get_queryset(self):
         queryset = super().get_queryset()
-        if current_org.is_real():
-            queryset = queryset.filter(created_by=current_org.id)
-        else:
-            queryset = queryset.filter(created_by='')
+        queryset = queryset.select_related('latest_execution')
         return queryset
 
 
 class TaskRun(generics.RetrieveAPIView):
     queryset = Task.objects.all()
-    # serializer_class = TaskViewSet
+    serializer_class = CeleryTaskSerializer
     permission_classes = (IsOrgAdmin,)
 
     def retrieve(self, request, *args, **kwargs):
@@ -47,6 +56,11 @@ class AdHocViewSet(viewsets.ModelViewSet):
     serializer_class = AdHocSerializer
     permission_classes = (IsOrgAdmin,)
 
+    def get_serializer_class(self):
+        if self.action == 'retrieve':
+            return AdHocDetailSerializer
+        return super().get_serializer_class()
+
     def get_queryset(self):
         task_id = self.request.query_params.get('task')
         if task_id:
@@ -56,8 +70,8 @@ class AdHocViewSet(viewsets.ModelViewSet):
 
 
 class AdHocRunHistoryViewSet(viewsets.ModelViewSet):
-    queryset = AdHocRunHistory.objects.all()
-    serializer_class = AdHocRunHistorySerializer
+    queryset = AdHocExecution.objects.all()
+    serializer_class = AdHocExecutionSerializer
     permission_classes = (IsOrgAdmin,)
 
     def get_queryset(self):
